@@ -136,7 +136,5 @@
 "log.remoteSeen" = "iPhone yanıtı için yeni mesajlar kontrol edildi";
 "settings.suggested" = "Mesajlar'da bulundu:";
 "desc.calibrating" = "Hareket sensörü kalibre ediliyor. Mac'e dokunma.";
-"settings.armDelay" = "Uzaklaşma süresi";
-"settings.seconds" = "%d sn";
 "pin.newPinAgain" = "Yeni PIN'i tekrar gir";
 "pin.fillAll" = "Üç alanı da doldur.";

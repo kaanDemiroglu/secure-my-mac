@@ -136,7 +136,5 @@
 "log.remoteSeen" = "New messages checked for iPhone reply";
 "settings.suggested" = "Found in Messages:";
 "desc.calibrating" = "Calibrating the motion sensor. Do not touch the Mac.";
-"settings.armDelay" = "Time to step away";
-"settings.seconds" = "%d s";
 "pin.newPinAgain" = "Repeat new PIN";
 "pin.fillAll" = "Fill in all three fields.";

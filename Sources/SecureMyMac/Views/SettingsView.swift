@@ -73,9 +73,6 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    Picker(loc.t("settings.armDelay"), selection: $c.armDelay) {
-                        ForEach([3, 10, 20], id: \.self) { Text(loc.t("settings.seconds", $0)).tag($0) }
-                    }
                     Toggle(loc.t("settings.demo"), isOn: $c.demoMode)
                     if c.hardwareAvailable {
                         Picker(loc.t("settings.sensitivity"), selection: $c.sensitivity) {

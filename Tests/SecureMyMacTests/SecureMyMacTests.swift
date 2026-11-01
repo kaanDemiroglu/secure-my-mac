@@ -95,6 +95,29 @@ final class FlowTests: XCTestCase {
         let c = make(); c.activate(); c.cancelArming()
         XCTAssertEqual(c.state, .idle)
     }
+    func testCountdownIsFixedAtFiveSeconds() {
+        UserDefaults.standard.set(20, forKey: "armDelay")                 // an old saved choice must be ignored
+        defer { UserDefaults.standard.removeObject(forKey: "armDelay") }
+        let c = ProtectionCoordinator(pinStore: PinStore(storage: MemoryStorage()),
+                                      log: EventLog(fileURL: FileManager.default.temporaryDirectory.appendingPathComponent("smm-\(UUID()).json")),
+                                      alarm: AlarmPlayer())
+        XCTAssertEqual(c.armDelay, 5)
+        XCTAssertEqual(ProtectionCoordinator.defaultArmDelay, 5)
+    }
+    func testSettleLeavesTheLastTwoSecondsForCalibration() {
+        for (delay, settle) in [(3, 100), (5, 300), (10, 800), (20, 800)] {
+            XCTAssertEqual(AppleSiliconMotionProvider.settleSamples(forCountdown: delay), settle, "delay \(delay)")
+        }
+    }
+    func testMotionDuringCountdownDoesNotAlarm() async {
+        let c = make()
+        c.activate()
+        XCTAssertEqual(c.state, .arming)
+        c.simulateTamper()                        // only works when armed: ignored while arming
+        XCTAssertEqual(c.state, .arming)
+        XCTAssertFalse(c.alarmActive)
+        c.cancelArming()
+    }
     func testItWasMeFlow() async {
         let c = await armed()
         c.simulateTamper()
@@ -242,6 +265,43 @@ final class MotionDetectorTests: XCTestCase {
         var d = calibrated(.max)
         for _ in 0..<MotionDetector.requiredOver { _ = d.feed(x: 0.2, y: 0.004, z: -0.98) }
         XCTAssertEqual(d.lastPeak, 0.2, accuracy: 0.02)
+    }
+    func testCalibratesRightAfterTheMacStopsMoving() {
+        var d = MotionDetector(sensitivity: .max)
+        for i in 0..<300 { _ = d.feed(x: i % 2 == 0 ? 0.6 : -0.6, y: 0, z: -0.98) }     // hand still on the Mac
+        XCTAssertFalse(d.isCalibrated)
+        var ready = -1
+        for i in 0..<(MotionDetector.calibrationCount + 30) where ready < 0 {
+            if d.feed(x: 0.001 * Double(i % 3), y: 0.004, z: -0.98) == .calibrated { ready = i + 1 }
+        }
+        XCTAssertGreaterThan(ready, 0)
+        XCTAssertLessThanOrEqual(ready, MotionDetector.calibrationCount + MotionDetector.checkEvery)   // about 1 s after it stopped
+    }
+    func testCalibrateNowAtLockUsesTheLastStillMoment() {
+        var d = MotionDetector(sensitivity: .max)
+        for i in 0..<60 { _ = d.feed(x: i % 2 == 0 ? 0.6 : -0.6, y: 0, z: -0.98) }
+        for i in 0..<MotionDetector.quickCalibrationCount { _ = d.feed(x: 0.001 * Double(i % 3), y: 0.004, z: -0.98) }
+        XCTAssertFalse(d.isCalibrated)                                                 // normal window not full yet
+        XCTAssertTrue(d.calibrateNow())
+        XCTAssertTrue(d.isCalibrated)
+        var fired = false
+        for _ in 0..<MotionDetector.requiredOver { if d.feed(x: 0.3, y: 0.004, z: -0.98) == .motion { fired = true } }
+        XCTAssertTrue(fired)                                                           // movement right after the lock is caught
+    }
+    func testCalibrateNowRefusesWhileStillMoving() {
+        var d = MotionDetector(sensitivity: .max)
+        for i in 0..<80 { _ = d.feed(x: i % 2 == 0 ? 0.6 : -0.6, y: 0, z: -0.98) }
+        XCTAssertFalse(d.calibrateNow())
+        XCTAssertFalse(d.isCalibrated)
+    }
+    func testResetDropsAnOutdatedReference() {
+        var d = calibrated(.max)
+        XCTAssertTrue(d.isCalibrated)
+        d.reset()
+        XCTAssertFalse(d.isCalibrated)                                                 // the countdown restarts calibration after a movement
+        var ready = false
+        for i in 0..<(MotionDetector.calibrationCount + MotionDetector.checkEvery) { if d.feed(x: 0.001 * Double(i % 3), y: 0.004, z: -0.98) == .calibrated { ready = true } }
+        XCTAssertTrue(ready)
     }
     func testMovingDuringCalibrationRestartsIt() {
         var d = MotionDetector(sensitivity: .medium)
