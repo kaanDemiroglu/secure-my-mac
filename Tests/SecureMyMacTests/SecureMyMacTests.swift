@@ -222,36 +222,6 @@ final class MotionDetectorTests: XCTestCase {
         var d = calibrated(.max)
         for i in 0..<5000 { XCTAssertEqual(d.feed(x: 0.002 * Double(i % 5), y: 0.004, z: -0.98 + 0.003 * Double(i % 4)), .none) }
     }
-    func testLoneBlipIgnoredButShortStrongMovementTriggers() {
-        var d = calibrated()
-        for _ in 0..<(MotionDetector.requiredOver - 1) { XCTAssertEqual(d.feed(x: 0.5, y: 0, z: -0.98), .none) }
-        rest(&d, MotionDetector.windowSize + 5)                                  // blip slides out
-        var fired = false
-        for _ in 0..<MotionDetector.requiredOver { if d.feed(x: 0.5, y: 0, z: -0.98) == .motion { fired = true } }
-        XCTAssertTrue(fired)
-    }
-    func testMaxSensitivityIgnoresShortSmallBumpsLikeTheFalseAlarms() {
-        var d = calibrated(.max)
-        // 0.025 g and 0.035 g bumps for a few samples (what the false alarms looked like) must NOT fire
-        for amp in [0.025, 0.035, 0.05] {
-            for _ in 0..<8 { XCTAssertEqual(d.feed(x: amp, y: 0.004, z: -0.98), .none) }
-            rest(&d, 60)
-        }
-    }
-    func testMaxSensitivityCatchesLastingSlightTilt() {
-        var d = calibrated(.max)
-        var fired = false
-        for _ in 0..<MotionDetector.weakWindowSize { if d.feed(x: 0.03, y: 0.004, z: -0.98) == .motion { fired = true } }   // about 1.7 degrees, kept
-        XCTAssertTrue(fired)
-        XCTAssertEqual(d.lastRule, "weak")
-    }
-    func testBigQuickMovementFiresStrongRuleAtMax() {
-        var d = calibrated(.max)
-        var fired = false
-        for _ in 0..<MotionDetector.requiredOver { if d.feed(x: 0.3, y: 0.004, z: -0.98) == .motion { fired = true } }
-        XCTAssertTrue(fired)
-        XCTAssertEqual(d.lastRule, "strong")
-    }
     func testSlowSettlingIsAbsorbed() {
         var d = calibrated(.max)
         // 0.03 g drift over 10 seconds (1000 samples): the Mac slowly settling, not a theft
@@ -260,11 +230,6 @@ final class MotionDetectorTests: XCTestCase {
     func testSmallTiltBelowThresholdIgnoredOnLowSensitivity() {
         var d = calibrated(.low)
         for _ in 0..<500 { XCTAssertEqual(d.feed(x: 0.12, y: 0.004, z: -0.98), .none) }
-    }
-    func testPeakOfTriggeringWindowIsReported() {
-        var d = calibrated(.max)
-        for _ in 0..<MotionDetector.requiredOver { _ = d.feed(x: 0.2, y: 0.004, z: -0.98) }
-        XCTAssertEqual(d.lastPeak, 0.2, accuracy: 0.02)
     }
     func testCalibratesRightAfterTheMacStopsMoving() {
         var d = MotionDetector(sensitivity: .max)
@@ -285,8 +250,8 @@ final class MotionDetectorTests: XCTestCase {
         XCTAssertTrue(d.calibrateNow())
         XCTAssertTrue(d.isCalibrated)
         var fired = false
-        for _ in 0..<MotionDetector.requiredOver { if d.feed(x: 0.3, y: 0.004, z: -0.98) == .motion { fired = true } }
-        XCTAssertTrue(fired)                                                           // movement right after the lock is caught
+        for _ in 0..<40 { if d.feed(x: 0.001, y: 0.004, z: -1.20) == .motion { fired = true } }
+        XCTAssertTrue(fired)                                                           // a lift right after the lock is caught
     }
     func testCalibrateNowRefusesWhileStillMoving() {
         var d = MotionDetector(sensitivity: .max)
@@ -302,6 +267,80 @@ final class MotionDetectorTests: XCTestCase {
         var ready = false
         for i in 0..<(MotionDetector.calibrationCount + MotionDetector.checkEvery) { if d.feed(x: 0.001 * Double(i % 3), y: 0.004, z: -0.98) == .calibrated { ready = true } }
         XCTAssertTrue(ready)
+    }
+    // MARK: lift detection (vertical movement and lasting tilt alarm; sideways movement never does)
+    private func feedAll(_ d: inout MotionDetector, _ n: Int, _ f: (Int) -> (Double, Double, Double)) -> [Int] {
+        var fired: [Int] = []
+        for i in 0..<n { let v = f(i); if d.feed(x: v.0, y: v.1, z: v.2) == .motion { fired.append(i) } }
+        return fired
+    }
+    func testSidewaysPullingNeverAlarms() {
+        var d = calibrated(.max)
+        // 0.1 g sideways acceleration back and forth for 6 s: dragging the Mac on the table
+        let fired = feedAll(&d, 600) { i in (0.1 * ((i / 20) % 2 == 0 ? 1 : -1), 0.004, -0.98) }
+        XCTAssertTrue(fired.isEmpty)
+    }
+    func testVerticalShakingBothWaysIsIgnored() {
+        var d = calibrated(.max)
+        // 0.08 g up and down every 3 samples for 6 s: shaking or knocking on the table
+        XCTAssertTrue(feedAll(&d, 600) { i in (0.001, 0.004, -0.98 - 0.08 * ((i / 3) % 2 == 0 ? 1 : -1)) }.isEmpty)
+    }
+    func testSustainedVerticalMovementFires() {
+        var d = calibrated(.max)
+        let fired = feedAll(&d, 40) { _ in (0.001, 0.004, -1.03) }                 // 0.05 g up for 0.4 s (a slow lift)
+        XCTAssertFalse(fired.isEmpty)
+        XCTAssertEqual(d.lastRule, "vertical")
+    }
+    func testQuickLiftFires() {
+        var d = calibrated(.max)
+        let fired = feedAll(&d, 40) { _ in (0.001, 0.004, -1.20) }
+        XCTAssertEqual(fired.first, MotionDetector.smoothWindow - 1 + MotionDetector.smoothRequired - 1)
+        XCTAssertEqual(d.lastPeak, 0.22, accuracy: 0.02)
+    }
+    func testLastingBigTiltFires() {
+        var d = calibrated(.max)
+        let fired = feedAll(&d, 80) { _ in (0.30, 0.004, -0.98) }                  // about 17 degrees, kept
+        XCTAssertEqual(fired.first, MotionDetector.tiltWindow - 1)
+        XCTAssertTrue(d.lastRule.hasPrefix("tilt"))
+    }
+    func testSmallTiltAndSettlingInANewPoseAreIgnored() {
+        var d = calibrated(.max)
+        XCTAssertTrue(feedAll(&d, 500) { _ in (0.20, 0.004, -0.98) }.isEmpty)      // about 11 degrees: below the limit
+        XCTAssertEqual(d.reference?.0 ?? 0, 0.20, accuracy: 0.01)                  // after 3 s still, this pose is the new reference
+    }
+    func testLowSensitivityNeedsALargerMovement() {
+        var d = calibrated(.low)
+        XCTAssertTrue(feedAll(&d, 300) { _ in (0.001, 0.004, -1.03) }.isEmpty)
+    }
+
+    // MARK: recorded on a real MacBook (Tests/Fixtures: accelerometer numbers only)
+    private func recording(_ name: String) throws -> [(Double, Double, Double)] {
+        let dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures")
+        let text = try String(contentsOf: dir.appendingPathComponent(name + ".csv"), encoding: .utf8)
+        return text.split(separator: "\n").dropFirst().compactMap { line in
+            let p = line.split(separator: ",").compactMap { Double($0) }
+            return p.count == 3 ? (p[0], p[1], p[2]) : nil
+        }
+    }
+    /// Sample numbers (0.01 s each) where the detector alarms, after a still lead-in taken from the quiet start of the lift recording.
+    private func alarms(in name: String, sensitivity: MotionSensitivity = .max) throws -> [Int] {
+        var d = MotionDetector(sensitivity: sensitivity)
+        for s in try recording("liftnorm").prefix(150) { _ = d.feed(x: s.0, y: s.1, z: s.2) }
+        XCTAssertTrue(d.isCalibrated)
+        var fired: [Int] = []
+        for (i, s) in try recording(name).enumerated() where d.feed(x: s.0, y: s.1, z: s.2) == .motion { fired.append(i) }
+        return fired
+    }
+    func testRecordedSlidingOnTheTableDoesNotAlarm() throws { XCTAssertTrue(try alarms(in: "slide").isEmpty) }
+    func testRecordedDiagonalPullDoesNotAlarm() throws { XCTAssertTrue(try alarms(in: "diag").isEmpty) }
+    func testRecordedTableShakeDoesNotAlarm() throws { XCTAssertTrue(try alarms(in: "shake").isEmpty) }   // the false alarm that was reported
+    func testRecordedSlowLiftAlarmsQuickly() throws {
+        let first = try XCTUnwrap(try alarms(in: "liftslow").first)
+        XCTAssertTrue((500...650).contains(first), "alarm at sample \(first)")     // the lift starts at about 5.0 s
+    }
+    func testRecordedNormalLiftAlarmsQuickly() throws {
+        let first = try XCTUnwrap(try alarms(in: "liftnorm").first)
+        XCTAssertTrue((450...600).contains(first), "alarm at sample \(first)")
     }
     func testMovingDuringCalibrationRestartsIt() {
         var d = MotionDetector(sensitivity: .medium)
