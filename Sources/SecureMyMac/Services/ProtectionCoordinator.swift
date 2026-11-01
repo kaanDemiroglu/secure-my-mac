@@ -6,7 +6,9 @@ final class ProtectionCoordinator: ObservableObject {
     static let shared = ProtectionCoordinator()
 
     @Published private(set) var state: ProtectionState = .idle
-    @Published private(set) var countdown = 3
+    /// Countdown choices in seconds (Settings). 5 is the default.
+    static let armDelayOptions = [3, 5, 10, 20]
+    @Published private(set) var countdown = 5
     @Published private(set) var hasPin: Bool
     @Published private(set) var testAlarmRunning = false
     /// False while the real sensor is still settling/calibrating: nothing is being watched yet.
@@ -58,7 +60,7 @@ final class ProtectionCoordinator: ObservableObject {
         if !MessagesNotifier.isValidAppleID(saved) { saved = ""; d.removeObject(forKey: "recipient") }   // old phone numbers are dropped
         recipient = saved
         let savedDelay = d.integer(forKey: "armDelay")
-        armDelay = [3, 10, 20].contains(savedDelay) ? savedDelay : 10
+        armDelay = Self.armDelayOptions.contains(savedDelay) ? savedDelay : 5
         sensitivity = MotionSensitivity(rawValue: d.string(forKey: "sensitivity") ?? "") ?? .max
         remoteReply = d.bool(forKey: "remoteReply")       // off until the user opts in
     }
@@ -96,10 +98,16 @@ final class ProtectionCoordinator: ObservableObject {
         }
         notice = nil
         lastOwnerConfirmed = false
+        alarmTriggered = false
+        messageSent = false
         state = .arming
         let delay = armDelay
         countdown = delay
-        sensorReady = false
+        sensorReady = provider.isSimulation
+        // The sensor starts together with the countdown: it settles and calibrates while the countdown runs,
+        // so it is already watching the moment the screen locks. Motion during the countdown never alarms
+        // (tamperDetected only reacts while armed).
+        startMonitoring(provider, countdown: delay)
         countdownTask = Task { [weak self] in
             for n in stride(from: delay, through: 1, by: -1) {
                 self?.countdown = n
@@ -110,16 +118,9 @@ final class ProtectionCoordinator: ObservableObject {
         }
     }
 
-    func cancelArming() {
-        guard state == .arming else { return }
-        countdownTask?.cancel()
-        state = .idle
-        log.add("armCancelled")
-    }
-
-    private func finishArming(with provider: MotionProvider) {
-        guard state == .arming else { return }
+    private func startMonitoring(_ provider: MotionProvider, countdown delay: Int) {
         hardware.sensitivity = sensitivity
+        hardware.settleSamples = AppleSiliconMotionProvider.settleSamples(forCountdown: delay)
         hardware.onCalibrated = { [weak self] in self?.sensorReady = true; self?.log.add("calibrated") }
         provider.start { [weak self] in
             guard let self else { return }
@@ -127,27 +128,34 @@ final class ProtectionCoordinator: ObservableObject {
             self.tamperDetected()
         }
         activeProvider = provider
-        alarmTriggered = false
-        messageSent = false
-        state = .armed
-        sensorReady = provider.isSimulation
-        log.add(demoActive ? "armedDemo" : "armed")
-        alarm.prewarm()
-        if !provider.isSimulation { verifySensorDelivers(provider) }
-        if lockOnArm { lockScreen() }
     }
 
-    /// A real sensor that stays silent must never be shown as "protected".
-    private func verifySensorDelivers(_ provider: MotionProvider) {
-        Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
-            guard let self, self.state == .armed, self.activeProvider === provider, provider.sampleCount == 0 else { return }
-            provider.stop(); self.activeProvider = nil
-            self.alarm.stop()
-            self.state = .idle
-            self.log.add("sensorNoData")
-            self.notice = Notice(key: "notice.sensorNoData", isError: true)
+    func cancelArming() {
+        guard state == .arming else { return }
+        countdownTask?.cancel()
+        activeProvider?.stop(); activeProvider = nil
+        sensorReady = false
+        state = .idle
+        log.add("armCancelled")
+    }
+
+    private func finishArming(with provider: MotionProvider) {
+        guard state == .arming else { return }
+        // A real sensor that stayed silent during the whole countdown must never be shown as "protected",
+        // and the screen is not locked in that case.
+        if !provider.isSimulation, provider.sampleCount == 0 {
+            provider.stop(); activeProvider = nil
+            sensorReady = false
+            state = .idle
+            log.add("sensorNoData")
+            notice = Notice(key: "notice.sensorNoData", isError: true)
+            return
         }
+        if provider === hardware { hardware.calibrateNow() }   // watching from the very moment the screen locks
+        state = .armed
+        log.add(demoActive ? "armedDemo" : "armed")
+        alarm.prewarm()
+        if lockOnArm { lockScreen() }
     }
 
     private func lockScreen() {

@@ -21,7 +21,8 @@ enum MotionSensitivity: String, CaseIterable, Identifiable {
 struct MotionDetector {
     enum Event: Equatable { case none, calibrated, motion }
 
-    static let calibrationCount = 200       // about 2 seconds at 100 Hz
+    static let calibrationCount = 100       // about 1 second at 100 Hz: a sliding window of the latest samples
+    static let quickCalibrationCount = 40   // about 0.4 s: used once, at the moment the screen locks
     static let windowSize = 10
     static let requiredOver = 3
     static let weakWindowSize = 40
@@ -47,21 +48,15 @@ struct MotionDetector {
 
     mutating func reset() { samples = []; baseline = nil; dists = [] }
 
+    /// Sliding window: the newest `calibrationCount` samples. As soon as they are all still, they become the
+    /// reference. Movement never restarts the count, so the sensor is ready right after the Mac stops being touched.
     mutating func feed(x: Double, y: Double, z: Double) -> Event {
         guard var b = baseline else {
             samples.append((x, y, z))
-            if samples.count >= Self.calibrationCount {
-                let n = Double(samples.count)
-                let m = (samples.map { $0.0 }.reduce(0, +) / n,
-                         samples.map { $0.1 }.reduce(0, +) / n,
-                         samples.map { $0.2 }.reduce(0, +) / n)
-                let worst = samples.map { Self.dist($0, m) }.max() ?? 0
-                if worst > threshold * 0.5 {      // Mac was moving during calibration: start over
-                    samples.removeAll(keepingCapacity: true)
-                } else {
-                    baseline = m; samples = []
-                    return .calibrated
-                }
+            if samples.count > Self.calibrationCount { samples.removeFirst(samples.count - Self.calibrationCount) }
+            if samples.count >= Self.calibrationCount, let m = stillMean(of: samples) {
+                baseline = m; samples = []
+                return .calibrated
             }
             return .none
         }
@@ -85,6 +80,26 @@ struct MotionDetector {
             baseline = b
         }
         return .none
+    }
+
+    /// Mean of the samples if they are all within half the threshold of it (the Mac is still), otherwise nil.
+    private func stillMean(of window: [(Double, Double, Double)]) -> (Double, Double, Double)? {
+        let n = Double(window.count)
+        guard n > 0 else { return nil }
+        let m = (window.map { $0.0 }.reduce(0, +) / n,
+                 window.map { $0.1 }.reduce(0, +) / n,
+                 window.map { $0.2 }.reduce(0, +) / n)
+        let worst = window.map { Self.dist($0, m) }.max() ?? 0
+        return worst > threshold * 0.5 ? nil : m
+    }
+
+    /// Called when the screen locks and the sensor is not calibrated yet: if the last ~0.4 s were still,
+    /// use them as the reference now, so a movement right after the lock is not missed.
+    mutating func calibrateNow() -> Bool {
+        guard baseline == nil, samples.count >= Self.quickCalibrationCount,
+              let m = stillMean(of: Array(samples.suffix(Self.quickCalibrationCount))) else { return false }
+        baseline = m; samples = []
+        return true
     }
 
     private static func dist(_ a: (Double, Double, Double), _ b: (Double, Double, Double)) -> Double {

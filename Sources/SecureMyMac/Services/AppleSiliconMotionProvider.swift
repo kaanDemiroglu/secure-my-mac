@@ -11,8 +11,22 @@ final class AppleSiliconMotionProvider: MotionProvider {
     /// Optional raw sample tap (x, y, z in g), called on the main thread. Used by diagnostics only.
     var onSample: ((Double, Double, Double) -> Void)?
     private(set) var sampleCount = 0
-    /// Samples ignored right after start (about 8 s) so the lock screen, the hand leaving and the chair settle first.
-    static let settleSamples = 800
+    /// Longest settle time (8 s at 100 Hz): the hand leaving and the table settle before calibration.
+    static let maxSettleSamples = 800
+    /// Samples ignored right after start. The coordinator sets this so the sensor is already calibrated
+    /// when the countdown ends: the last 2 s of the countdown are kept for calibration (1 s window + margin).
+    var settleSamples = AppleSiliconMotionProvider.maxSettleSamples
+
+    /// Settle samples for a countdown of `seconds`: all but the last 2 s (at least 0.5 s, at most 8 s).
+    static func settleSamples(forCountdown seconds: Int) -> Int {
+        min(maxSettleSamples, max(50, (seconds - 2) * 100))
+    }
+
+    /// Screen lock moment: if the sensor is not calibrated yet, calibrate from the last ~0.4 s when they were still.
+    @MainActor func calibrateNow() {
+        guard !detector.isCalibrated, detector.calibrateNow() else { return }
+        calibratedAt = Date(); onCalibrated?()
+    }
     private(set) var calibratedAt: Date?
     private var lastPeak = 0.0
     /// For the event log: how big the movement was and how long after calibration it happened.
@@ -107,7 +121,7 @@ final class AppleSiliconMotionProvider: MotionProvider {
         onSample?(x, y, z)
         trace.append((x, y, z))
         if trace.count > 500 { trace.removeFirst(trace.count - 500) }
-        if sampleCount <= Self.settleSamples { return }
+        if sampleCount <= settleSamples { return }
         switch detector.feed(x: x, y: y, z: z) {
         case .none: break
         case .calibrated: calibratedAt = Date(); let cb = onCalibrated; Task { @MainActor in cb?() }
