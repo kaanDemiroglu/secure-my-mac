@@ -7,6 +7,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         MainActor.assumeIsolated { ProtectionCoordinator.shared.state == .idle ? .terminateNow : .terminateCancel }
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    /// Set by the app once SwiftUI is ready; opens the main window when it was closed.
+    static var openMainWindow: (() -> Void)?
+
+    /// Clicking the Dock icon while no window is visible (the window was closed, the app keeps running) shows the window again.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { Self.showMainWindow() }
+        return true
+    }
+
+    /// Brings the existing main window forward, or asks SwiftUI to open a new one.
+    static func showMainWindow() {
+        NSApp.activate(ignoringOtherApps: true)
+        if let w = NSApp.windows.first(where: { $0.title == "Secure My Mac" && $0.canBecomeMain }) {
+            if w.isMiniaturized { w.deminiaturize(nil) }
+            w.makeKeyAndOrderFront(nil)
+        } else {
+            openMainWindow?()
+        }
+    }
 }
 
 @main
@@ -27,14 +47,13 @@ struct SecureMyMacApp: App {
         MenuBarExtra {
             Text(statusText)
             Divider()
-            Button(loc.t("menu.open")) {
-                openWindow(id: "main"); NSApp.activate(ignoringOtherApps: true)
-            }
+            Button(loc.t("menu.open")) { AppDelegate.showMainWindow() }
             Button(coordinator.state == .idle ? loc.t("menu.quit") : loc.t("menu.quitBlocked")) {
                 NSApp.terminate(nil)
             }.disabled(coordinator.state != .idle)
         } label: {
             Image(systemName: menuSymbol)
+                .onAppear { AppDelegate.openMainWindow = { openWindow(id: "main") } }
         }
     }
 
