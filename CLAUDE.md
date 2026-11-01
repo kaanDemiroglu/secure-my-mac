@@ -60,31 +60,9 @@ Daha iyi uyku/kapak algılama, isteğe bağlı oturum açılışında çalışt�
 - Her iki dilde kesilen etiketleri, PIN/güvenlik akışlarını, menü çubuğunu, test mesajını, simüle alarmı, sahibi doğrulanınca takip mesajını ve uygulama yeniden açıldığında seçimin korunmasını test et. README'ye testleri veya elle yapılabilecek bir yerelleştirme QA tablosu ekle.
 
 ## 4. Önerilen mimari
-Swift 6/SwiftUI, gerektiğinde AppKit, Foundation, Security framework/Keychain, isteğe bağlı yerel bildirimler için UserNotifications, yalnız donanım fizibilitesi doğrulanırsa IOKit kullan. Açık sorumluluklu az sayıda dosyayı tercih et:
+Swift 6/SwiftUI, gerektiğinde AppKit, Foundation, Security framework/Keychain, isteğe bağlı yerel bildirimler için UserNotifications, yalnız donanım fizibilitesi doğrulanırsa IOKit kullan. Açık sorumluluklu az sayıda dosyayı tercih et.
 
-```text
-SecureMyMac/
-  SecureMyMacApp.swift
-  Views/MainView.swift
-  Views/SettingsView.swift
-  Services/LocalizationManager.swift
-  Services/MessageTemplates.swift
-  Models/ProtectionState.swift
-  Services/ProtectionCoordinator.swift
-  Services/PinStore.swift
-  Services/AlarmPlayer.swift
-  Services/MotionProvider.swift
-  Services/AppleSiliconMotionProvider.swift
-  Services/SimulationMotionProvider.swift
-  Services/MessagesNotifier.swift
-  Services/ScreenLocker.swift
-  Services/EventLog.swift
-  Resources/en.lproj/Localizable.strings (veya Localizable.xcstrings)
-  Resources/tr.lproj/Localizable.strings (veya Localizable.xcstrings)
-  Resources/alert.wav
-  README.md
-CLAUDE.md
-```
+Kod yapısı için `Sources/SecureMyMac/` (Models, Services, Views) altına bak; dosya ağacı burada tutulmuyor.
 
 Mimari kurallar:
 - `ProtectionCoordinator` korumaya alma/kapatma ve durum geçişlerini yönetir, olayları sırayla ele alır; yarış durumlarını ve tekrar eden alarmları önle.
@@ -94,35 +72,12 @@ Mimari kurallar:
 - `Unsupported` / `Permission denied` / `Sleeping` / `Disconnected` gibi durumları açıkça göster.
 - Güvenli iptal ve temiz çıkış sağla.
 
-## 5. Claude Code çalışma sırası — önemli
-1. `sw_vers`, `uname -m`, kurulu Xcode/Swift ve MacBook modelini belirle; engelleri de içeren kısa bir Türkçe rapor ver. İvmeölçere erişimin mümkün olduğunu VARSAYMA.
-2. Minimal Xcode SwiftUI macOS projesini oluştur (yüklenebilir `.app` paketi güvenilir üretiliyorsa Swift Package executable alternatifi). Her adımda derlenebilir kalsın.
-3. Yerelleştirilmiş durum arayüzü, Türkçe/İngilizce/sistem dili ayarı ve durum makinesini uygula. Hemen derle; anlık dil değişimini kontrol et.
-4. PIN belirleme/tekrar doğrulama/kontrol/değiştirme ve test edilmiş güvenli saklama; geri sayım ve korumayı kapatma.
-5. Paketli alarm, Test Alarm, yerel log ve doğru açma/kapama davranışını uygula. `It Was Me / Bendim` → PIN ekranı → başarılı PIN sesi durdurup korumayı KAPATSIN (otomatik yeniden açılmasın); yanlış/iptal PIN alarmı açık bıraksın. Sensörü eklemeden önce simüle müdahaleyle test et.
-6. Ekran kilidini ekle, sonucu test et ve kurtarma yönergesi ver; **geliştiricinin mevcut Mac'ini gerçekten kilitlemeden önce izin iste**.
-7. Manuel müdahale tetikleyicisini ekle; yerel alarmı uçtan uca göster.
-8. Ayrı aşamada sensör erişilebilirliğini araştır; desteklenen cihazda gerçek hareketi entegre et. Root gerekiyorsa gerekçeyi açıkla ve her ayrıcalıklı işlemden ÖNCE açık onay iste. MacBook'u hafif hareket ettirerek hassasiyeti test et; düşürme/çarpma testi yapma.
-9. Dile uygun iMessage göndericisi, ayarı ve Test Message ekle (içerik uygulama dilinde). Olay başına tek alarm bildirimi, yalnız PIN ile sahibi doğrulandıktan sonra isteğe bağlı tek 'koruma kapandı' mesajı. Sahte iMessage eylem düğmesi vaadinde bulunma. **Gerçek kişiye mesaj göndermeden önce izin iste**. Otomasyon iznini, hataları ve durumu yönet; AppleScript başarılı dönse bile mesajın iPhone'a ulaştığını doğruladığını iddia etme.
-10. TR/EN arayüz ve bildirimler dahil testleri çalıştır, `.app` derle, kesin çalıştırma komutunu, sınırlamaları, sonraki görevleri ve mümkünse ekran görüntülerini belgele.
+## 5. Kapsam kuralı
 
 **Kapsam kuralı:** macOS hareket/iMessage işlevini engelliyorsa çalışıyormuş gibi gösterme. Dürüstçe test edilebilen temel uygulamayı simüle olayla teslim et; engelleri görünür biçimde işaretle.
 
 ## 6. Kabul testleri
-- Ayarlarda `Language / Dil` seçimi var; English seçilince uygulamanın TAMAMI İngilizce, Türkçe seçilince TAMAMI Türkçe (PIN, alarm, durum, testler, hata, menü çubuğu, ayarlar). Yeniden başlatmadan değişiyor ve sonraki açılışta korunuyor.
-- Her dilde `Send Test Alert`, alarm ve PIN ile doğrulanmış kapatma doğru iMessage içeriğini üretir (kullanılıyorsa yerel macOS bildirimlerini de). Marka ve işletim sisteminin kendi metinleri dışında Türkçe modunda sabit İngilizce veya tersi yoktur.
-- İlk açılış PIN kurulumunu sunar. Hatalı PIN normal uygulama arayüzünden korumayı kapatamaz; doğru PIN kapatır.
-- Alarmda `It Was Me` belirgindir; doğru PIN alarmı durdurur, korumayı kapatır, olayı kaydeder, `Not Protected` gösterir. Otomatik yeniden korumaya almaz. Yanlış PIN veya iptal sessizleştirmez/kapatmaz. Sahip normal macOS ekran kilidini açınca anlaşılmayan gizli bir kısayola ihtiyaç duymadan `It Was Me` kullanabilir.
-- Küçük ekran eğimi veya hafif sarsıntı, gerçek donanım testinde varsayılan kalibre edilmiş hassasiyetle alarmı tetiklememelidir. Hassasiyet ayarını sensör desteği kanıtlandıktan sonra aç.
-- Telefon mesajları yalnız bilgilendirir; uzaktan eylem yaptırmaz. Koruma kapatıldı takip mesajı gönderilemezse yerel koruma yine kapanır ve mesajın teslim belirsizliği arayüzde belirtilir.
-- Koruma durumu yalnızca korumaya alma başarılıysa değişir; geri sayım iptal edilebilir.
-- Yerel test tetikleyicisi alarmı bir kez başlatır ve olayı kaydeder.
-- Alarm interneti veya Mesajlar uygulamasını beklemeden başlar.
-- Test ters giderse uygulama güvenle durdurulabilir; geliştiriciyi kontrolsüz alarmda mahsur bırakma.
-- Sensör desteklenip erişilebiliyorsa kalibrasyondan sonraki kontrollü hareket alarmı tetikler; hareketsiz Mac ilk gözlem süresinde yanlış alarm üretmez.
-- iMessage testi: alıcı ayarlanmış ve kullanıcı onaylamış, Otomasyon izni istenmiş, hatalar görülebiliyor ve tekrar eden sensör örnekleri spam üretmiyor.
-- Bütün UI düğmeleri çalışır; çalışan özellik gibi gösterilen boş fonksiyon yok.
-- `xcodebuild` veya eşdeğer derleme başarılıdır; nasıl çalıştırılacağı belirtilir.
+Kabul testi listesi `.claude/skills/acceptance-tests` skill'ine taşındı; özellik doğrularken veya sürüm öncesi o skill'i kullan.
 
 ## 7. Claude Code çalışma tarzı
 - Benimle **basit ve kısa Türkçe** konuş. Ne değiştirdiğini, çalıştırmam gereken tek komutu ve onaylamam gereken izin penceresini söyle.
