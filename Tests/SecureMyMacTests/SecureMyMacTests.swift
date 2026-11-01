@@ -95,15 +95,14 @@ final class FlowTests: XCTestCase {
         let c = make(); c.activate(); c.cancelArming()
         XCTAssertEqual(c.state, .idle)
     }
-    func testDefaultCountdownIsFiveAndOptionsKept() {
-        XCTAssertEqual(ProtectionCoordinator.armDelayOptions, [3, 5, 10, 20])
-        let saved = UserDefaults.standard.object(forKey: "armDelay")
-        defer { if let saved { UserDefaults.standard.set(saved, forKey: "armDelay") } else { UserDefaults.standard.removeObject(forKey: "armDelay") } }
-        UserDefaults.standard.removeObject(forKey: "armDelay")
+    func testCountdownIsFixedAtFiveSeconds() {
+        UserDefaults.standard.set(20, forKey: "armDelay")                 // an old saved choice must be ignored
+        defer { UserDefaults.standard.removeObject(forKey: "armDelay") }
         let c = ProtectionCoordinator(pinStore: PinStore(storage: MemoryStorage()),
                                       log: EventLog(fileURL: FileManager.default.temporaryDirectory.appendingPathComponent("smm-\(UUID()).json")),
                                       alarm: AlarmPlayer())
         XCTAssertEqual(c.armDelay, 5)
+        XCTAssertEqual(ProtectionCoordinator.defaultArmDelay, 5)
     }
     func testSettleLeavesTheLastTwoSecondsForCalibration() {
         for (delay, settle) in [(3, 100), (5, 300), (10, 800), (20, 800)] {
@@ -272,11 +271,11 @@ final class MotionDetectorTests: XCTestCase {
         for i in 0..<300 { _ = d.feed(x: i % 2 == 0 ? 0.6 : -0.6, y: 0, z: -0.98) }     // hand still on the Mac
         XCTAssertFalse(d.isCalibrated)
         var ready = -1
-        for i in 0..<(MotionDetector.calibrationCount + 20) where ready < 0 {
+        for i in 0..<(MotionDetector.calibrationCount + 30) where ready < 0 {
             if d.feed(x: 0.001 * Double(i % 3), y: 0.004, z: -0.98) == .calibrated { ready = i + 1 }
         }
         XCTAssertGreaterThan(ready, 0)
-        XCTAssertLessThanOrEqual(ready, MotionDetector.calibrationCount + 5)            // about 1 s after it stopped
+        XCTAssertLessThanOrEqual(ready, MotionDetector.calibrationCount + MotionDetector.checkEvery)   // about 1 s after it stopped
     }
     func testCalibrateNowAtLockUsesTheLastStillMoment() {
         var d = MotionDetector(sensitivity: .max)
@@ -294,6 +293,15 @@ final class MotionDetectorTests: XCTestCase {
         for i in 0..<80 { _ = d.feed(x: i % 2 == 0 ? 0.6 : -0.6, y: 0, z: -0.98) }
         XCTAssertFalse(d.calibrateNow())
         XCTAssertFalse(d.isCalibrated)
+    }
+    func testResetDropsAnOutdatedReference() {
+        var d = calibrated(.max)
+        XCTAssertTrue(d.isCalibrated)
+        d.reset()
+        XCTAssertFalse(d.isCalibrated)                                                 // the countdown restarts calibration after a movement
+        var ready = false
+        for i in 0..<(MotionDetector.calibrationCount + MotionDetector.checkEvery) { if d.feed(x: 0.001 * Double(i % 3), y: 0.004, z: -0.98) == .calibrated { ready = true } }
+        XCTAssertTrue(ready)
     }
     func testMovingDuringCalibrationRestartsIt() {
         var d = MotionDetector(sensitivity: .medium)

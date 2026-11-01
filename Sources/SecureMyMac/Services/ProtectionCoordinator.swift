@@ -6,8 +6,8 @@ final class ProtectionCoordinator: ObservableObject {
     static let shared = ProtectionCoordinator()
 
     @Published private(set) var state: ProtectionState = .idle
-    /// Countdown choices in seconds (Settings). 5 is the default.
-    static let armDelayOptions = [3, 5, 10, 20]
+    /// Countdown in seconds. Fixed at 5 (no setting); tests may shorten it.
+    static let defaultArmDelay = 5
     @Published private(set) var countdown = 5
     @Published private(set) var hasPin: Bool
     @Published private(set) var testAlarmRunning = false
@@ -19,7 +19,7 @@ final class ProtectionCoordinator: ObservableObject {
     @Published var demoMode: Bool { didSet { UserDefaults.standard.set(demoMode, forKey: "demoMode") } }
     @Published var lockOnArm: Bool { didSet { UserDefaults.standard.set(lockOnArm, forKey: "lockOnArm") } }
     @Published var sendOnAlarm: Bool { didSet { UserDefaults.standard.set(sendOnAlarm, forKey: "sendOnAlarm") } }
-    @Published var armDelay: Int { didSet { UserDefaults.standard.set(armDelay, forKey: "armDelay") } }
+    var armDelay = ProtectionCoordinator.defaultArmDelay
     @Published var sensitivity: MotionSensitivity { didSet { UserDefaults.standard.set(sensitivity.rawValue, forKey: "sensitivity") } }
     @Published var remoteReply: Bool { didSet { UserDefaults.standard.set(remoteReply, forKey: "remoteReply") } }
     @Published var recipient: String { didSet { UserDefaults.standard.set(recipient, forKey: "recipient") } }
@@ -59,8 +59,7 @@ final class ProtectionCoordinator: ObservableObject {
         var saved = d.string(forKey: "recipient") ?? ""
         if !MessagesNotifier.isValidAppleID(saved) { saved = ""; d.removeObject(forKey: "recipient") }   // old phone numbers are dropped
         recipient = saved
-        let savedDelay = d.integer(forKey: "armDelay")
-        armDelay = Self.armDelayOptions.contains(savedDelay) ? savedDelay : 5
+        d.removeObject(forKey: "armDelay")                 // the countdown setting was removed
         sensitivity = MotionSensitivity(rawValue: d.string(forKey: "sensitivity") ?? "") ?? .max
         remoteReply = d.bool(forKey: "remoteReply")       // off until the user opts in
     }
@@ -121,7 +120,12 @@ final class ProtectionCoordinator: ObservableObject {
     private func startMonitoring(_ provider: MotionProvider, countdown delay: Int) {
         hardware.sensitivity = sensitivity
         hardware.settleSamples = AppleSiliconMotionProvider.settleSamples(forCountdown: delay)
-        hardware.onCalibrated = { [weak self] in self?.sensorReady = true; self?.log.add("calibrated") }
+        hardware.onCalibrated = { [weak self] in
+            // A callback queued before Cancel/Deactivate must not mark an idle app as ready.
+            guard let self, self.state == .arming || self.state == .armed else { return }
+            self.sensorReady = true; self.log.add("calibrated")
+        }
+        hardware.alarmEnabled = false
         provider.start { [weak self] in
             guard let self else { return }
             if !provider.isSimulation, self.state == .armed { self.log.add("motion", detail: self.hardware.lastEventDetail) }
@@ -151,7 +155,7 @@ final class ProtectionCoordinator: ObservableObject {
             notice = Notice(key: "notice.sensorNoData", isError: true)
             return
         }
-        if provider === hardware { hardware.calibrateNow() }   // watching from the very moment the screen locks
+        if provider === hardware { hardware.calibrateNow(); hardware.alarmEnabled = true }   // watching from the very moment the screen locks
         state = .armed
         log.add(demoActive ? "armedDemo" : "armed")
         alarm.prewarm()

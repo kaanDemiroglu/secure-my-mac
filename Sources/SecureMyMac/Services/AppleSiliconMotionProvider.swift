@@ -27,6 +27,9 @@ final class AppleSiliconMotionProvider: MotionProvider {
         guard !detector.isCalibrated, detector.calibrateNow() else { return }
         calibratedAt = Date(); onCalibrated?()
     }
+    /// False during the countdown: a movement then (the hand leaving) restarts calibration instead of being
+    /// dropped later with an outdated reference. The coordinator sets it to true when protection is armed.
+    var alarmEnabled = true
     private(set) var calibratedAt: Date?
     private var lastPeak = 0.0
     /// For the event log: how big the movement was and how long after calibration it happened.
@@ -125,6 +128,7 @@ final class AppleSiliconMotionProvider: MotionProvider {
         switch detector.feed(x: x, y: y, z: z) {
         case .none: break
         case .calibrated: calibratedAt = Date(); let cb = onCalibrated; Task { @MainActor in cb?() }
+        case .motion where !alarmEnabled: detector.reset()   // still being set up: calibrate again, no trace, no alarm
         case .motion: lastPeak = detector.lastPeak; lastRule = detector.lastRule; saveTrace(); let h = handler; Task { @MainActor in h?() }
         }
     }

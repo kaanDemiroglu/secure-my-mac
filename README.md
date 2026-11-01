@@ -16,7 +16,7 @@ Gereksinim: macOS 14+, Xcode/Swift 5.9+. Test edilen Mac: MacBook Pro M2 Pro (Ma
 |---|---|
 | TR/EN arayüz, anlık dil değişimi, kalıcı seçim | Çalışıyor (anahtar eşleşmesi test edildi; görsel QA elle) |
 | PIN (PBKDF2+tuz, Keychain), yanlış PIN reddi | Çalışıyor (birim testli) |
-| Koruma aç/kapat, 3 sn geri sayım, iptal | Çalışıyor (birim testli) |
+| Koruma aç/kapat, 5 sn geri sayım (sabit), iptal | Çalışıyor (birim testli) |
 | Bendim → PIN → alarm sus → koruma kapat | Çalışıyor (birim testli, ses sessize alınarak) |
 | Alarm sesi ve Test Alarm | Ses dosyası ve çalma kodu çalışıyor (kilitliyken çalma doğrulandı). Uygulamadaki **Test Alarm düğmesine basma** henüz denenmedi |
 | Hareket algılama (gerçek ivmeölçer) | Çalışıyor: 1 Kas 14:27'de gerçek hareketle alarm, telefondan susturma ve mesajlar uçtan uca doğrulandı. Hareketsiz Mac'te sensör temiz (50 sn'de en büyük sapma 0,0066 g). **Koruma başladıktan 8–13 sn sonra temassız yanlış alarmlar görüldü (14:31–14:46; son ikisi 0,025 ve 0,035 g, yani çok küçük).** Önlem: geri sayım (varsayılan 5 sn) sırasında sensör aynı anda sakinleşip kalibre olur (kayan 1 sn'lik pencere: Mac 1 sn sakin kalınca hazır; kilit anında hazır değilse son 0,4 sn'den kalibre edilir), kilitlendiği an izleme açıktır; iki kuralı var: büyük ani hareket (≥0,06 g) hemen, çok hafif sapma (0,02 g) yalnızca ~0,4 sn sürerse alarm; yavaş oturma (~3 sn) referansa katılır. Yanlış alarm olursa ham veri `~/Library/Application Support/SecureMyMac/traces/` altına kaydedilir. **Bu yeni kuralları gerçek cihazda henüz deneyen olmadı.** Belgelenmemiş Apple arayüzü: başka model/sürümde çalışmayabilir |

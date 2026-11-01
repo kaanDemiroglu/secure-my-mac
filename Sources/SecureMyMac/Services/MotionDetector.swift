@@ -22,6 +22,7 @@ struct MotionDetector {
     enum Event: Equatable { case none, calibrated, motion }
 
     static let calibrationCount = 100       // about 1 second at 100 Hz: a sliding window of the latest samples
+    static let checkEvery = 10              // stillness is checked every 10 samples (0.1 s) to save CPU
     static let quickCalibrationCount = 40   // about 0.4 s: used once, at the moment the screen locks
     static let windowSize = 10
     static let requiredOver = 3
@@ -36,6 +37,7 @@ struct MotionDetector {
     private var samples: [(Double, Double, Double)] = []
     private var baseline: (Double, Double, Double)?
     private var dists: [Double] = []         // last 40 deviations
+    private var sinceCheck = 0               // samples since the last stillness check (checked every 10, not every sample)
     /// Largest deviation (g) inside the window that triggered the last motion event.
     private(set) var lastPeak = 0.0
     /// Which rule fired last: "strong" or "weak".
@@ -46,7 +48,7 @@ struct MotionDetector {
     var isCalibrated: Bool { baseline != nil }
     var reference: (Double, Double, Double)? { baseline }
 
-    mutating func reset() { samples = []; baseline = nil; dists = [] }
+    mutating func reset() { samples = []; baseline = nil; dists = []; sinceCheck = 0 }
 
     /// Sliding window: the newest `calibrationCount` samples. As soon as they are all still, they become the
     /// reference. Movement never restarts the count, so the sensor is ready right after the Mac stops being touched.
@@ -54,9 +56,10 @@ struct MotionDetector {
         guard var b = baseline else {
             samples.append((x, y, z))
             if samples.count > Self.calibrationCount { samples.removeFirst(samples.count - Self.calibrationCount) }
-            if samples.count >= Self.calibrationCount, let m = stillMean(of: samples) {
-                baseline = m; samples = []
-                return .calibrated
+            sinceCheck += 1
+            if samples.count >= Self.calibrationCount, sinceCheck >= Self.checkEvery {
+                sinceCheck = 0
+                if let m = stillMean(of: samples) { baseline = m; samples = []; return .calibrated }
             }
             return .none
         }
