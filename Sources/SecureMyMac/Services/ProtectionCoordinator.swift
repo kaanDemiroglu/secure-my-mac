@@ -71,26 +71,58 @@ final class ProtectionCoordinator: ObservableObject {
         d.removeObject(forKey: "armDelay")                 // the countdown setting was removed
         sensitivity = MotionSensitivity(rawValue: d.string(forKey: "sensitivity") ?? "") ?? .max
         remoteReply = d.bool(forKey: "remoteReply")       // off until the user opts in
-        if d.bool(forKey: "sleepRestoreNeeded") { Task { await self.restoreSleepIfNeeded() } }
+        if d.bool(forKey: "sleepRestoreNeeded") {
+            // Önceki oturumda ayar açık kalmış. Pencere hazır olsun, kullanıcı nedenini görsün, sonra parola iste.
+            Task {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                guard self.state == .idle else { return }
+                self.notice = Notice(key: "notice.keepAwakeRestoring")
+                await self.restoreSleepIfNeeded()
+            }
+        }
     }
 
     // MARK: Uyku ayarı (pmset)
 
+    /// Parola penceresi veya pmset çağrısı sürüyor mu? Aynı anda iki işlem çalışmaz.
+    private var sleepBusy = false
+    /// Çıkış sırasında beklenmesi gereken bir uyku ayarı işi var mı?
+    var sleepWorkPending: Bool { sleepRestoreNeeded || sleepBusy }
+
     private func enableKeepAwake() async {
+        guard !sleepBusy else { return }
+        sleepBusy = true
+        sleepRestoreNeeded = true   // önce işaretle: parola penceresi açıkken koruma kapanırsa da geri alınsın
         let ok = await SleepGuard.set(disabled: true, prompt: loc.t("prompt.keepAwakeOn"))
-        if ok { sleepRestoreNeeded = true; log.add("keepAwakeOn") }
-        else { log.add("keepAwakeFailed"); notice = Notice(key: "notice.keepAwakeFailed", isError: true) }
+        sleepBusy = false
+        if ok {
+            log.add("keepAwakeOn")
+        } else {
+            if await !SleepGuard.isDisabled() { sleepRestoreNeeded = false }
+            log.add("keepAwakeFailed"); notice = Notice(key: "notice.keepAwakeFailed", isError: true)
+        }
+        // Parola girilirken koruma çoktan kapandıysa ayarı hemen geri al.
+        if state == .idle { await restoreSleepIfNeeded() }
     }
 
     /// Ayar açık kaldıysa ve koruma aktif değilse geri alır. Başarısızsa kullanıcıya gösterir.
     func restoreSleepIfNeeded() async {
-        guard sleepRestoreNeeded, state == .idle else { return }
+        guard sleepRestoreNeeded, state == .idle, !sleepBusy else { return }
+        sleepBusy = true
+        defer { sleepBusy = false }
         if await !SleepGuard.isDisabled() { sleepRestoreNeeded = false; return }
         if await SleepGuard.set(disabled: false, prompt: loc.t("prompt.keepAwakeOff")) {
             sleepRestoreNeeded = false; log.add("keepAwakeOff")
         } else {
             log.add("keepAwakeRestoreFailed"); notice = Notice(key: "notice.keepAwakeRestoreFailed", isError: true)
         }
+    }
+
+    /// Çıkıştan önce: süren/gereken uyku ayarı işini bitirir (en çok 60 sn bekler).
+    func finishSleepWorkBeforeQuit() async {
+        var waited = 0.0
+        while sleepBusy, waited < 60 { try? await Task.sleep(nanoseconds: 200_000_000); waited += 0.2 }
+        await restoreSleepIfNeeded()
     }
 
     var isArmedDemo: Bool { state != .idle && state != .arming && demoActive }
@@ -227,13 +259,14 @@ final class ProtectionCoordinator: ObservableObject {
 
     /// Kapak kapanınca hemen alarm; uykudan uyanınca alarm hâlâ aktifse sesi yeniden başlat.
     private func startLidGuard() {
-        lidGuard.onLidClosed = { [weak self] in
+        lidGuard.onLidClosed = { [weak self] lidClosed in
             guard let self, self.state == .armed else { return }
-            self.log.add("lidClosed")
+            self.log.add(lidClosed ? "lidClosed" : "sleepWhileArmed")
             self.tamperDetected()
         }
         lidGuard.onWake = { [weak self] in
-            guard let self, self.state == .alerting || self.state == .verifyingOwner, self.alarmTriggered else { return }
+            guard let self, self.state == .alerting || self.state == .verifyingOwner, self.alarmTriggered,
+                  !self.alarm.isPlaying else { return }
             self.alarm.play()
         }
         lidGuard.start()

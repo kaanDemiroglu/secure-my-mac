@@ -6,10 +6,12 @@ import IOKit.pwr_mgt
 /// Koruma açıkken kapak kapanmasını ve uykuya geçişi izler.
 /// - Şarjdayken "uyanık kal" kilidi tutar, böylece kapak kapalıyken de Mac uyumaz.
 /// - Pilde macOS kapak kapanınca uykuyu zorla yapar; bu durumda uykudan hemen önce alarm tetiklenir.
-/// Yetki (sudo) gerekmez; sistem ayarı değiştirilmez.
+/// Bu sınıf yetki istemez ve sistem ayarı değiştirmez (yalnızca IOKit uyku kilidi).
+/// Pilde kapalı kapakta uyumamak için gereken yönetici yetkili `pmset` çağrısı ayrıdır: bkz. `SleepGuard`.
 @MainActor
 final class LidGuard {
-    var onLidClosed: (() -> Void)?
+    /// `lidClosed`: kapak gerçekten kapalıysa true; değilse (menüden uyut, pil bitti vb.) false.
+    var onLidClosed: ((_ lidClosed: Bool) -> Void)?
     var onWake: (() -> Void)?
 
     private var timer: Timer?
@@ -34,7 +36,7 @@ final class LidGuard {
         }
         let nc = NSWorkspace.shared.notificationCenter
         observers.append(nc.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.onLidClosed?() }
+            MainActor.assumeIsolated { self?.onLidClosed?(Self.isLidClosed()) }
         })
         observers.append(nc.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.onWake?() }
@@ -43,7 +45,7 @@ final class LidGuard {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 let closed = Self.isLidClosed()
-                if closed, !self.lastClosed { self.onLidClosed?() }
+                if closed, !self.lastClosed { self.onLidClosed?(true) }
                 self.lastClosed = closed
             }
         }

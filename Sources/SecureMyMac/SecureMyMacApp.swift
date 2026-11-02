@@ -4,7 +4,17 @@ import AppKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         // Quitting while protection is on would silently drop protection; require PIN deactivation first.
-        MainActor.assumeIsolated { ProtectionCoordinator.shared.state == .idle ? .terminateNow : .terminateCancel }
+        MainActor.assumeIsolated {
+            let c = ProtectionCoordinator.shared
+            guard c.state == .idle else { return .terminateCancel }
+            // Uyku ayarı geri alınmadan çıkma: önce bitir, sonra çık.
+            guard c.sleepWorkPending else { return .terminateNow }
+            Task {
+                await c.finishSleepWorkBeforeQuit()
+                NSApp.reply(toApplicationShouldTerminate: true)
+            }
+            return .terminateLater
+        }
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 

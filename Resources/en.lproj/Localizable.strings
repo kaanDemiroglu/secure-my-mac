@@ -149,3 +149,5 @@
 "log.keepAwakeOff" = "Sleep setting restored";
 "log.keepAwakeFailed" = "Preventing sleep failed";
 "log.keepAwakeRestoreFailed" = "Restoring sleep setting failed";
+"notice.keepAwakeRestoring" = "Restoring a sleep setting left over from a previous session; the Mac password will be requested.";
+"log.sleepWhileArmed" = "Mac went to sleep while protected";

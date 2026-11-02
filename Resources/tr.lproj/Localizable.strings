@@ -149,3 +149,5 @@
 "log.keepAwakeOff" = "Uyku ayarı geri yüklendi";
 "log.keepAwakeFailed" = "Uyku engelleme başarısız";
 "log.keepAwakeRestoreFailed" = "Uyku ayarı geri yüklenemedi";
+"notice.keepAwakeRestoring" = "Önceki oturumdan kalan uyku ayarı geri alınıyor, Mac parolası istenecek.";
+"log.sleepWhileArmed" = "Koruma açıkken Mac uykuya geçti";
