@@ -80,6 +80,8 @@ struct SettingsView: View {
                         }
                     }
                     Toggle(loc.t("settings.lockOnArm"), isOn: $c.lockOnArm)
+                    Toggle(loc.t("settings.keepAwake"), isOn: $c.keepAwakeLidClosed)
+                    Text(loc.t("settings.keepAwakeHint")).font(.caption).foregroundStyle(.secondary)
                 }
 
                 Section(loc.t("settings.diagnostics")) {

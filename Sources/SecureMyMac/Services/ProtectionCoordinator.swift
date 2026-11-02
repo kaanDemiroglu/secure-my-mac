@@ -18,6 +18,13 @@ final class ProtectionCoordinator: ObservableObject {
 
     @Published var demoMode: Bool { didSet { UserDefaults.standard.set(demoMode, forKey: "demoMode") } }
     @Published var lockOnArm: Bool { didSet { UserDefaults.standard.set(lockOnArm, forKey: "lockOnArm") } }
+    /// Kapak kapalıyken pilde de uyumasın (pmset, yönetici parolası ister). Varsayılan kapalı.
+    @Published var keepAwakeLidClosed: Bool { didSet { UserDefaults.standard.set(keepAwakeLidClosed, forKey: "keepAwakeLidClosed") } }
+    /// Ayarı biz açtık ve henüz geri almadık; uygulama yeniden açılınca tekrar denenir.
+    private var sleepRestoreNeeded: Bool {
+        get { UserDefaults.standard.bool(forKey: "sleepRestoreNeeded") }
+        set { UserDefaults.standard.set(newValue, forKey: "sleepRestoreNeeded") }
+    }
     @Published var sendOnAlarm: Bool { didSet { UserDefaults.standard.set(sendOnAlarm, forKey: "sendOnAlarm") } }
     var armDelay = ProtectionCoordinator.defaultArmDelay
     @Published var sensitivity: MotionSensitivity { didSet { UserDefaults.standard.set(sensitivity.rawValue, forKey: "sensitivity") } }
@@ -29,6 +36,7 @@ final class ProtectionCoordinator: ObservableObject {
     let alarm: AlarmPlayer
     private let hardware = AppleSiliconMotionProvider()
     private let simulation = SimulationMotionProvider()
+    private let lidGuard = LidGuard()
     private var activeProvider: MotionProvider?
     private var countdownTask: Task<Void, Never>?
     private var stateBeforeVerify: ProtectionState = .armed
@@ -56,12 +64,33 @@ final class ProtectionCoordinator: ObservableObject {
         demoMode = d.object(forKey: "demoMode") as? Bool ?? !hasSensor
         lockOnArm = d.bool(forKey: "lockOnArm")           // off until the user opts in
         sendOnAlarm = d.bool(forKey: "sendOnAlarm")
+        keepAwakeLidClosed = d.bool(forKey: "keepAwakeLidClosed")   // off until the user opts in
         var saved = d.string(forKey: "recipient") ?? ""
         if !MessagesNotifier.isValidAppleID(saved) { saved = ""; d.removeObject(forKey: "recipient") }   // old phone numbers are dropped
         recipient = saved
         d.removeObject(forKey: "armDelay")                 // the countdown setting was removed
         sensitivity = MotionSensitivity(rawValue: d.string(forKey: "sensitivity") ?? "") ?? .max
         remoteReply = d.bool(forKey: "remoteReply")       // off until the user opts in
+        if d.bool(forKey: "sleepRestoreNeeded") { Task { await self.restoreSleepIfNeeded() } }
+    }
+
+    // MARK: Uyku ayarı (pmset)
+
+    private func enableKeepAwake() async {
+        let ok = await SleepGuard.set(disabled: true, prompt: loc.t("prompt.keepAwakeOn"))
+        if ok { sleepRestoreNeeded = true; log.add("keepAwakeOn") }
+        else { log.add("keepAwakeFailed"); notice = Notice(key: "notice.keepAwakeFailed", isError: true) }
+    }
+
+    /// Ayar açık kaldıysa ve koruma aktif değilse geri alır. Başarısızsa kullanıcıya gösterir.
+    func restoreSleepIfNeeded() async {
+        guard sleepRestoreNeeded, state == .idle else { return }
+        if await !SleepGuard.isDisabled() { sleepRestoreNeeded = false; return }
+        if await SleepGuard.set(disabled: false, prompt: loc.t("prompt.keepAwakeOff")) {
+            sleepRestoreNeeded = false; log.add("keepAwakeOff")
+        } else {
+            log.add("keepAwakeRestoreFailed"); notice = Notice(key: "notice.keepAwakeRestoreFailed", isError: true)
+        }
     }
 
     var isArmedDemo: Bool { state != .idle && state != .arming && demoActive }
@@ -159,6 +188,8 @@ final class ProtectionCoordinator: ObservableObject {
         state = .armed
         log.add(demoActive ? "armedDemo" : "armed")
         alarm.prewarm()
+        startLidGuard()
+        if keepAwakeLidClosed { Task { await enableKeepAwake() } }
         if lockOnArm { lockScreen() }
     }
 
@@ -192,6 +223,20 @@ final class ProtectionCoordinator: ObservableObject {
             try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
             self?.simulateTamper()
         }
+    }
+
+    /// Kapak kapanınca hemen alarm; uykudan uyanınca alarm hâlâ aktifse sesi yeniden başlat.
+    private func startLidGuard() {
+        lidGuard.onLidClosed = { [weak self] in
+            guard let self, self.state == .armed else { return }
+            self.log.add("lidClosed")
+            self.tamperDetected()
+        }
+        lidGuard.onWake = { [weak self] in
+            guard let self, self.state == .alerting || self.state == .verifyingOwner, self.alarmTriggered else { return }
+            self.alarm.play()
+        }
+        lidGuard.start()
     }
 
     private func tamperDetected() {
@@ -231,6 +276,7 @@ final class ProtectionCoordinator: ObservableObject {
         guard pinStore.verify(pin) else { log.add("wrongPin"); return false }
         let wasAlert = alarmTriggered || stateBeforeVerify == .alerting
         alarm.stop()
+        lidGuard.stop()
         remoteTask?.cancel(); remoteTask = nil
         activeProvider?.stop(); activeProvider = nil
         let shouldFollowUp = alarmTriggered && sendOnAlarm
@@ -243,6 +289,7 @@ final class ProtectionCoordinator: ObservableObject {
         state = .idle
         sensorReady = false
         log.add(wasAlert ? "ownerConfirmed" : "disarmed")
+        if sleepRestoreNeeded { Task { await restoreSleepIfNeeded() } }
         if shouldFollowUp {
             Task { await sendMessage(MessageTemplates.ownerVerified(), to: followUpTo, updateNotice: false, isFollowUp: true) }
         }

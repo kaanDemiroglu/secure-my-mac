@@ -121,6 +121,7 @@
 "sens.high" = "High";
 "notice.sensorNoData" = "The motion sensor sent no data, so protection was NOT started.";
 "log.calibrated" = "Motion sensor calibrated";
+"log.lidClosed" = "Lid closed while protected";
 "log.motion" = "Movement detected by sensor";
 "log.sensorNoData" = "Motion sensor sent no data, protection stopped";
 "settings.notifications" = "Notifications";
@@ -138,3 +139,13 @@
 "desc.calibrating" = "Calibrating the motion sensor. Do not touch the Mac.";
 "pin.newPinAgain" = "Repeat new PIN";
 "pin.fillAll" = "Fill in all three fields.";
+"settings.keepAwake" = "Stay awake with the lid closed on battery too (asks for admin password)";
+"settings.keepAwakeHint" = "A password is requested when protection starts and when it ends. A closed lid can raise heat and battery use. Manual reset: sudo pmset -a disablesleep 0";
+"prompt.keepAwakeOn" = "Secure My Mac needs permission to keep the Mac awake with the lid closed while protection is on.";
+"prompt.keepAwakeOff" = "Secure My Mac needs permission to restore the normal sleep setting.";
+"notice.keepAwakeFailed" = "Could not prevent sleep (no password or an error). On battery the Mac may sleep when the lid closes.";
+"notice.keepAwakeRestoreFailed" = "Could not restore the sleep setting! The Mac may not sleep with the lid closed. Terminal: sudo pmset -a disablesleep 0";
+"log.keepAwakeOn" = "Sleep prevented with lid closed";
+"log.keepAwakeOff" = "Sleep setting restored";
+"log.keepAwakeFailed" = "Preventing sleep failed";
+"log.keepAwakeRestoreFailed" = "Restoring sleep setting failed";

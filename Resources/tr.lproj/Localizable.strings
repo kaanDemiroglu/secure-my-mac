@@ -121,6 +121,7 @@
 "sens.high" = "Yüksek";
 "notice.sensorNoData" = "Hareket sensörü veri göndermedi, bu yüzden koruma BAŞLATILMADI.";
 "log.calibrated" = "Hareket sensörü kalibre edildi";
+"log.lidClosed" = "Koruma açıkken kapak kapatıldı";
 "log.motion" = "Sensör hareket algıladı";
 "log.sensorNoData" = "Hareket sensörü veri göndermedi, koruma durduruldu";
 "settings.notifications" = "Bildirimler";
@@ -138,3 +139,13 @@
 "desc.calibrating" = "Hareket sensörü kalibre ediliyor. Mac'e dokunma.";
 "pin.newPinAgain" = "Yeni PIN'i tekrar gir";
 "pin.fillAll" = "Üç alanı da doldur.";
+"settings.keepAwake" = "Kapak kapalıyken pilde de uyuma (yönetici parolası ister)";
+"settings.keepAwakeHint" = "Koruma açılırken ve kapanırken parola sorulur. Kapalı kapakla ısınma ve pil tüketimi artabilir. Elle geri alma: sudo pmset -a disablesleep 0";
+"prompt.keepAwakeOn" = "Secure My Mac, koruma sırasında kapak kapalıyken Mac'in uyumasını engellemek için izin istiyor.";
+"prompt.keepAwakeOff" = "Secure My Mac, Mac'in normal uyku ayarını geri yüklemek için izin istiyor.";
+"notice.keepAwakeFailed" = "Uyku engellenemedi (parola girilmedi veya hata). Pilde kapak kapanınca Mac uyuyabilir.";
+"notice.keepAwakeRestoreFailed" = "Uyku ayarı geri alınamadı! Mac kapalı kapakla uyumayabilir. Terminal: sudo pmset -a disablesleep 0";
+"log.keepAwakeOn" = "Kapalı kapakta uyku engellendi";
+"log.keepAwakeOff" = "Uyku ayarı geri yüklendi";
+"log.keepAwakeFailed" = "Uyku engelleme başarısız";
+"log.keepAwakeRestoreFailed" = "Uyku ayarı geri yüklenemedi";
