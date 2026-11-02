@@ -7,7 +7,8 @@ final class AlarmPlayer {
     private var player: AVAudioPlayer?
     private var fallbackTimer: Timer?
     private var testStop: Task<Void, Never>?
-    static let maxVolume: Float = 0.8   // app volume cap; system volume is not touched
+    static let maxVolume: Float = 0.9   // uygulama ses sınırı; sistem sesi SystemVolumeLock ile %85'te tutulur
+    private let volumeLock = SystemVolumeLock()
     private(set) var isPlaying = false
     private var warm = false
     var usedFallback = false
@@ -30,6 +31,7 @@ final class AlarmPlayer {
     func play(loop: Bool = true) {
         if warm, let p = player, !muted {
             warm = false
+            volumeLock.lock()
             isPlaying = true
             usedFallback = false
             p.currentTime = 0
@@ -40,6 +42,7 @@ final class AlarmPlayer {
         isPlaying = true
         usedFallback = false
         if muted { return }
+        volumeLock.lock()
         if let url = AppResources.url("alert", ext: "wav"), let p = try? AVAudioPlayer(contentsOf: url) {
             p.numberOfLoops = loop ? -1 : 0
             p.volume = Self.maxVolume
@@ -66,6 +69,7 @@ final class AlarmPlayer {
 
     func stop() {
         warm = false
+        volumeLock.unlock()
         testStop?.cancel(); testStop = nil
         player?.stop(); player = nil
         fallbackTimer?.invalidate(); fallbackTimer = nil
